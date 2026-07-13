@@ -28,8 +28,16 @@ A multi-purpose Discord Bot built with **Node.js** and **discord.js v14**, featu
 | `/game list`                          | Show current player list                   |
 | `/game start`                         | Start the game                             |
 | `/game abort`                         | Abort the running game                     |
-| `/soundboard`                         | Play a sound in your voice channel         |
-| `/repeat`                             | Bot reads your message aloud in voice chat |
+| `/game submit <number>`               | Submit your guess (50-100)                 |
+| `/game hostsubmit <percentage>`       | Host submits the target percentage         |
+| `/soundboard show`                    | Open interactive soundboard panel          |
+| `/soundboard add <name> <file>`       | Add a new sound                            |
+| `/soundboard remove <name>`           | Remove a sound                             |
+| `/soundboard list`                    | List all available sounds                  |
+| `/r say <text>`                       | Bot reads your message aloud in voice chat |
+| `/r add <abbr> <full>`                | Add a text abbreviation                    |
+| `/r list`                             | List all abbreviations                     |
+| `/r remove <abbr>`                    | Remove an abbreviation                     |
 | `/meetingtime <channel> <start\|end>` | Start/stop tracking voice channel time     |
 | `/help`                               | Show all available commands                |
 
@@ -69,11 +77,19 @@ DISCORD_TOKEN=your_bot_token_here
 # Discord Application Client ID (REQUIRED)
 CLIENT_ID=your_client_id_here
 
-# Log channel ID (optional)
-LOG_CHANNEL_ID=
+# Deploy commands to a specific guild for instant updates (optional)
+GUILD_ID=
 
-# HTTP server port (default: 10000)
+# HTTP server port for health checks (default: 10000)
 PORT=10000
+
+# Comma-separated music channel IDs to allow (optional)
+MUSIC_CHANNEL_IDS=
+
+# Feature flags (optional)
+# ENABLE_AUTO_GREETING=true
+# ENABLE_DAILY_GREETING=false
+# ENABLE_MUSIC_BLOCKER=true
 ```
 
 ### Running the Bot
@@ -84,6 +100,9 @@ npm run dev
 
 # Production
 npm start
+
+# Deploy slash commands only (no bot)
+npm run deploy
 ```
 
 The bot will automatically deploy slash commands to Discord on startup.
@@ -92,32 +111,52 @@ The bot will automatically deploy slash commands to Discord on startup.
 
 ```
 discord-bot/
-├── main.js                  # Entry point — starts bot & HTTP server
-├── index.js                 # Discord client setup, loads commands & events
-├── deploy-commands.js       # Deploys slash commands to Discord API
-├── config/
-│   └── config.js            # Loads environment variables from .env
+├── src/
+│   ├── index.js               # Entry point — HTTP server + bot startup
+│   ├── deploy.js              # Deploys slash commands to Discord API
+│   ├── client/
+│   │   └── botClient.js       # Discord client factory & login
+│   ├── config/
+│   │   └── config.js          # Centralized configuration (all env vars)
+│   ├── commands/
+│   │   ├── index.js           # Command registry (auto-loads all subdirs)
+│   │   ├── utility/
+│   │   │   ├── ping.js
+│   │   │   ├── hello.js
+│   │   │   └── help.js
+│   │   ├── game/
+│   │   │   └── numberGame.js
+│   │   └── voice/
+│   │       ├── soundboard.js
+│   │       ├── repeatAfterMe.js
+│   │       └── meetingTime.js
+│   ├── events/
+│   │   ├── index.js           # Event registry (auto-loads all events)
+│   │   ├── ready.js
+│   │   ├── interactionCreate.js
+│   │   ├── messageCreate.js
+│   │   ├── voiceStateUpdate.js
+│   │   └── presenceUpdate.js
+│   ├── services/
+│   │   ├── voiceService.js    # Shared voice connection & playback logic
+│   │   ├── ttsService.js      # TTS (gTTS) generation
+│   │   └── excelService.js    # Meeting Excel report export
+│   ├── stores/
+│   │   ├── gameStore.js       # Number-game state
+│   │   └── meetingStore.js    # Meeting-tracking state
+│   └── utils/
+│       ├── logger.js          # File + console logger
+│       └── helpers.js         # Shared utility functions
 ├── commands/
-│   ├── ping.js              # Ping command
-│   ├── hello.js             # Hello command
-│   ├── numberGame.js        # Number-guessing game
-│   ├── soundboard.js        # Soundboard
-│   ├── repeatAfterMe.js     # TTS repeat command
-│   ├── countMeetingTime.js  # Voice time tracker
 │   └── soundboard/
-│       └── mapping.json     # Sound name → file mapping
-├── events/
-│   ├── ready.js             # Bot ready event
-│   ├── voiceStateUpdate.js  # Auto-greet on voice join
-│   └── presenceUpdate.js    # Greeting/goodbye on online/offline
-├── utils/
-│   ├── helper.js            # Help command (/help)
-│   └── logger.js            # File-based logger
-├── sounds/                  # Sound files directory
-├── data/                    # Data files (abbreviations.json)
-├── .env.example             # Environment variables template
+│       └── mapping.json       # Sound name → file mapping
+├── sounds/                    # Sound files directory
+├── data/                      # Data files (abbreviations.json, reports/)
+├── logs/                      # Daily log files
+├── .env.example               # Environment variables template
 ├── .gitignore
-└── package.json
+├── package.json
+└── README.md
 ```
 
 ## 🛠️ Tech Stack

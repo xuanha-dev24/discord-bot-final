@@ -1,15 +1,15 @@
 {
   "name": "xuanha-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "commonjs",
-  "main": "main.js",
+  "main": "src/index.js",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node main.js",
-    "dev": "nodemon index.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "deploy": "node src/deploy.js"
   },
   "keywords": [],
   "author": "",
