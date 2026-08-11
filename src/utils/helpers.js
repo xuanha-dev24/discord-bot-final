@@ -61,6 +61,13 @@ function createSafeFileName(name) {
 }
 
 /**
+ * Normalize free-text input: Unicode NFC form, trimmed, collapsed whitespace.
+ */
+function normalizeText(text) {
+    return text.normalize('NFC').trim().replace(/\s+/g, ' ');
+}
+
+/**
  * Auto-delete a Discord reply after a delay.
  */
 function autoDeleteReply(reply, delayMs = 5000) {
@@ -90,6 +97,7 @@ module.exports = {
     formatDuration,
     formatTime,
     createSafeFileName,
+    normalizeText,
     autoDeleteReply,
     safeErrorReply,
 };

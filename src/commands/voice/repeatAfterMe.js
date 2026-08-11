@@ -1,9 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+const franc = require('franc-min');
 const voiceService = require('../../services/voiceService');
 const { generateTTS, deleteFile } = require('../../services/ttsService');
-const { escapeRegex, getDisplayName, autoDeleteReply } = require('../../utils/helpers');
+const { escapeRegex, getDisplayName, autoDeleteReply, normalizeText } = require('../../utils/helpers');
 const logger = require('../../utils/logger');
 
 // ---- Abbreviation store ----
@@ -11,11 +12,23 @@ const logger = require('../../utils/logger');
 const DATA_DIR = path.join(process.cwd(), 'data');
 const ABBREVIATIONS_FILE = path.join(DATA_DIR, 'abbreviations.json');
 
+// Below this length, language detection is too unreliable — default to Vietnamese.
+const MIN_LENGTH_FOR_DETECTION = 4;
+// Only treat text as English when it beats Vietnamese by more than this margin.
+const ENGLISH_CONFIDENCE_MARGIN = 0.1;
+
 function loadAbbreviations() {
     try {
         if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
         if (fs.existsSync(ABBREVIATIONS_FILE)) {
-            return JSON.parse(fs.readFileSync(ABBREVIATIONS_FILE, 'utf8'));
+            const raw = JSON.parse(fs.readFileSync(ABBREVIATIONS_FILE, 'utf8'));
+            // Normalize keys to lowercase so lookups stay case-insensitive
+            // even for entries saved before this change.
+            const normalized = {};
+            for (const [key, value] of Object.entries(raw)) {
+                normalized[key.toLowerCase()] = value;
+            }
+            return normalized;
         }
     } catch (err) {
         logger.error(`Load abbreviations error: ${err.message}`);
@@ -34,14 +47,40 @@ function saveAbbreviations(data) {
     }
 }
 
+/**
+ * Guess whether text is Vietnamese vs. English, so single-letter
+ * abbreviations (e.g. "a" → "anh") don't get expanded inside English
+ * sentences. Statistical detection is unreliable on short/casual chat
+ * text, so this defaults to Vietnamese (the bot's primary language)
+ * unless English clearly wins by a margin, scored only against Vietnamese
+ * (comparing against all ~80 languages franc supports is far less
+ * accurate for short text than a direct vi-vs-en comparison).
+ */
+function isLikelyVietnamese(text) {
+    const trimmed = text.trim();
+    if (trimmed.length < MIN_LENGTH_FOR_DETECTION) return true;
+
+    const scores = Object.fromEntries(franc.all(trimmed, { minLength: 1 }));
+    const vi = scores['vie'] || 0;
+    const en = scores['eng'] || 0;
+
+    return en - vi <= ENGLISH_CONFIDENCE_MARGIN;
+}
+
 function expandAbbreviations(text) {
     const abbreviations = loadAbbreviations();
+    const keys = Object.keys(abbreviations);
+    if (keys.length === 0 || !isLikelyVietnamese(text)) {
+        return text;
+    }
+
     let result = text;
-    const sorted = Object.keys(abbreviations).sort((a, b) => b.length - a.length);
+    const sorted = keys.sort((a, b) => b.length - a.length);
 
     for (const abbr of sorted) {
         const escaped = escapeRegex(abbr);
-        const regex = new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?=[^\\p{L}\\p{N}]|$)`, 'gu');
+        // Case-insensitive match against the lowercase-normalized key.
+        const regex = new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?=[^\\p{L}\\p{N}]|$)`, 'giu');
         result = result.replace(regex, (_, prefix) => `${prefix}${abbreviations[abbr]}`);
     }
 
@@ -89,7 +128,7 @@ async function handleSay(interaction) {
         return interaction.reply({ content: '❌ Bạn cần vào voice channel trước!', ephemeral: true });
     }
 
-    const rawText = interaction.options.getString('text');
+    const rawText = normalizeText(interaction.options.getString('text'));
     const text = expandAbbreviations(rawText);
     const nickname = getDisplayName(interaction.member);
 
@@ -111,8 +150,8 @@ async function handleSay(interaction) {
 }
 
 async function handleAdd(interaction) {
-    const abbr = interaction.options.getString('abbreviation').trim();
-    const full = interaction.options.getString('fullform').trim();
+    const abbr = normalizeText(interaction.options.getString('abbreviation')).toLowerCase();
+    const full = normalizeText(interaction.options.getString('fullform'));
 
     if (!abbr || !full) {
         return interaction.reply({ content: '❌ Không được để trống!', ephemeral: true });
@@ -152,7 +191,8 @@ async function handleList(interaction) {
 }
 
 async function handleRemove(interaction) {
-    const abbr = interaction.options.getString('abbreviation')?.trim();
+    const rawAbbr = interaction.options.getString('abbreviation');
+    const abbr = rawAbbr ? normalizeText(rawAbbr).toLowerCase() : undefined;
 
     if (!abbr) {
         // Show list to pick from
