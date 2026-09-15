@@ -100,12 +100,13 @@ function getOrCreatePlayer(guildId) {
  * Play an audio file in a voice channel.
  * Returns a Promise that resolves when playback starts.
  */
-async function playFile(channel, filePath) {
+async function playFile(channel, filePath, volume = 1) {
     const connection = await connect(channel);
     const player = getOrCreatePlayer(channel.guild.id);
     connection.subscribe(player);
 
-    const resource = createAudioResource(filePath);
+    const resource = createAudioResource(filePath, { inlineVolume: volume !== 1 });
+    if (volume !== 1) resource.volume.setVolume(volume);
     player.play(resource);
 
     return new Promise((resolve, reject) => {
@@ -117,13 +118,13 @@ async function playFile(channel, filePath) {
 /**
  * Enqueue a file for playback. Plays immediately if nothing is playing.
  */
-function enqueueFile(guildId, filePath, channel) {
+function enqueueFile(guildId, filePath, channel, volume = 1) {
     if (!queues.has(guildId)) {
         queues.set(guildId, { queue: [], playing: false });
     }
 
     const q = queues.get(guildId);
-    q.queue.push({ filePath, channel });
+    q.queue.push({ filePath, channel, volume });
 
     if (!q.playing) {
         processNextInQueue(guildId);
@@ -141,10 +142,10 @@ async function processNextInQueue(guildId) {
     }
 
     q.playing = true;
-    const { filePath, channel } = q.queue.shift();
+    const { filePath, channel, volume } = q.queue.shift();
 
     try {
-        await playFile(channel, filePath);
+        await playFile(channel, filePath, volume);
     } catch (err) {
         logger.error(`Queue playback error in guild ${guildId}: ${err.message}`);
         q.playing = false;

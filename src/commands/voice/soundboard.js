@@ -34,16 +34,27 @@ function saveMapping(mapping) {
     fs.writeFileSync(MAPPING_FILE, JSON.stringify(mapping, null, 2));
 }
 
+// Mapping entries can be a plain filename (legacy) or { file, volume } (percent, default 100)
+function normalizeEntry(entry) {
+    if (typeof entry === 'string') return { file: entry, volume: 100 };
+    return { file: entry.file, volume: entry.volume ?? 100 };
+}
+
 function getSoundList() {
     if (!fs.existsSync(SOUNDBOARD_DIR)) return [];
     const mapping = loadMapping();
-    const reversed = Object.fromEntries(Object.entries(mapping).map(([k, v]) => [v, k]));
+    const reversed = {};
+    for (const [name, entry] of Object.entries(mapping)) {
+        const { file, volume } = normalizeEntry(entry);
+        reversed[file] = { displayName: name, volume };
+    }
 
     return fs.readdirSync(SOUNDBOARD_DIR)
         .filter(f => f.endsWith('.mp3') || f.endsWith('.ogg'))
         .map(file => ({
-            displayName: reversed[file] || file.replace(/\.(mp3|ogg)$/, ''),
+            displayName: reversed[file]?.displayName || file.replace(/\.(mp3|ogg)$/, ''),
             fileName: file,
+            volume: reversed[file]?.volume ?? 100,
             ext: path.extname(file),
         }));
 }
@@ -60,7 +71,8 @@ module.exports = {
             .setName('add')
             .setDescription('Thêm âm thanh mới')
             .addStringOption(o => o.setName('name').setDescription('Tên âm thanh').setRequired(true).setMaxLength(30))
-            .addAttachmentOption(o => o.setName('file').setDescription('File âm thanh (.mp3/.ogg)').setRequired(true)))
+            .addAttachmentOption(o => o.setName('file').setDescription('File âm thanh (.mp3/.ogg)').setRequired(true))
+            .addIntegerOption(o => o.setName('volume').setDescription('Âm lượng (%) so với gốc, mặc định 100').setMinValue(1).setMaxValue(200)))
         .addSubcommand(s => s
             .setName('remove')
             .setDescription('Xóa âm thanh')
@@ -158,7 +170,7 @@ async function handleShow(interaction) {
             const filePath = path.join(SOUNDBOARD_DIR, sound.fileName);
             await btn.deferUpdate();
             try {
-                await voiceService.playFile(voiceChannel, filePath);
+                await voiceService.playFile(voiceChannel, filePath, sound.volume / 100);
             } catch (err) {
                 logger.error(`Soundboard play error: ${err.message}`);
             }
@@ -176,6 +188,7 @@ async function handleShow(interaction) {
 async function handleAdd(interaction) {
     const name = interaction.options.getString('name');
     const attachment = interaction.options.getAttachment('file');
+    const volume = interaction.options.getInteger('volume') ?? 100;
 
     if (!attachment.name.endsWith('.mp3') && !attachment.name.endsWith('.ogg')) {
         return interaction.reply({ content: '❌ Chỉ chấp nhận file .mp3 hoặc .ogg!', ephemeral: true });
@@ -197,10 +210,10 @@ async function handleAdd(interaction) {
         const buffer = Buffer.from(await response.arrayBuffer());
         fs.writeFileSync(filePath, buffer);
 
-        mapping[name] = fileName;
+        mapping[name] = { file: fileName, volume };
         saveMapping(mapping);
 
-        await interaction.editReply(`✅ Đã thêm âm thanh **${name}** (${fileName})`);
+        await interaction.editReply(`✅ Đã thêm âm thanh **${name}** (${fileName}) – âm lượng ${volume}%`);
         logger.info(`Soundboard added: ${name} → ${fileName}`);
     } catch (err) {
         logger.error(`Soundboard add failed: ${err.message}`);
@@ -216,7 +229,7 @@ async function handleRemove(interaction) {
         return interaction.reply({ content: `❌ Không tìm thấy âm thanh "${name}".`, ephemeral: true });
     }
 
-    const filePath = path.join(SOUNDBOARD_DIR, mapping[name]);
+    const filePath = path.join(SOUNDBOARD_DIR, normalizeEntry(mapping[name]).file);
     delete mapping[name];
     saveMapping(mapping);
 
@@ -232,7 +245,7 @@ async function handleList(interaction) {
         return interaction.reply({ content: '📝 Chưa có âm thanh nào.', ephemeral: true });
     }
 
-    const list = sounds.map((s, i) => `${i + 1}. **${s.displayName}** (${s.fileName})`).join('\n');
+    const list = sounds.map((s, i) => `${i + 1}. **${s.displayName}** (${s.fileName}) – ${s.volume}%`).join('\n');
     const embed = new EmbedBuilder()
         .setTitle('🔊 Danh sách Soundboard')
         .setColor(0x00ae86)
