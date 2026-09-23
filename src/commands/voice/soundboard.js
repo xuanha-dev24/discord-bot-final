@@ -77,6 +77,12 @@ module.exports = {
             .setName('remove')
             .setDescription('Xóa âm thanh')
             .addStringOption(o => o.setName('name').setDescription('Tên âm thanh cần xóa').setRequired(true).setAutocomplete(true)))
+        .addSubcommand(s => s
+            .setName('edit')
+            .setDescription('Đổi tên hoặc chỉnh âm lượng âm thanh')
+            .addStringOption(o => o.setName('name').setDescription('Tên âm thanh cần sửa').setRequired(true).setAutocomplete(true))
+            .addStringOption(o => o.setName('new_name').setDescription('Tên mới').setMaxLength(30))
+            .addIntegerOption(o => o.setName('volume').setDescription('Âm lượng mới (%) so với gốc').setMinValue(1).setMaxValue(200)))
         .addSubcommand(s => s.setName('list').setDescription('Xem danh sách tất cả âm thanh')),
 
     async autocomplete(interaction) {
@@ -96,6 +102,7 @@ module.exports = {
             case 'show': await handleShow(interaction); break;
             case 'add': await handleAdd(interaction); break;
             case 'remove': await handleRemove(interaction); break;
+            case 'edit': await handleEdit(interaction); break;
             case 'list': await handleList(interaction); break;
         }
     },
@@ -237,6 +244,47 @@ async function handleRemove(interaction) {
 
     await interaction.reply(`✅ Đã xóa âm thanh **${name}**.`);
     logger.info(`Soundboard removed: ${name}`);
+}
+
+async function handleEdit(interaction) {
+    const name = interaction.options.getString('name');
+    const newName = interaction.options.getString('new_name')?.trim() || null;
+    const newVolume = interaction.options.getInteger('volume');
+
+    if (!newName && newVolume === null) {
+        return interaction.reply({ content: '❌ Cần nhập ít nhất `new_name` hoặc `volume`.', ephemeral: true });
+    }
+
+    // Look up via the sound list so files without a mapping entry can be edited too
+    const sounds = getSoundList();
+    const sound = sounds.find(s => s.displayName === name);
+    if (!sound) {
+        return interaction.reply({ content: `❌ Không tìm thấy âm thanh "${name}".`, ephemeral: true });
+    }
+
+    if (newName && newName !== name && sounds.some(s => s.displayName === newName)) {
+        return interaction.reply({ content: `❌ Tên "${newName}" đã tồn tại.`, ephemeral: true });
+    }
+
+    const mapping = loadMapping();
+    const volume = newVolume ?? sound.volume;
+    const finalName = newName || name;
+
+    delete mapping[name];
+    mapping[finalName] = { file: sound.fileName, volume };
+    saveMapping(mapping);
+
+    const changes = [];
+    if (finalName !== name) changes.push(`tên: **${name}** → **${finalName}**`);
+    if (volume !== sound.volume) changes.push(`âm lượng: ${sound.volume}% → ${volume}%`);
+
+    await interaction.reply({
+        content: changes.length
+            ? `✅ Đã cập nhật **${finalName}** (${changes.join(', ')})`
+            : `ℹ️ Không có thay đổi nào cho **${name}**.`,
+        ephemeral: true,
+    });
+    logger.info(`Soundboard edited: ${name} → ${finalName} (${volume}%)`);
 }
 
 async function handleList(interaction) {
